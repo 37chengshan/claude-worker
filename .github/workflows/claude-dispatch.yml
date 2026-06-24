@@ -1,0 +1,73 @@
+name: claude-dispatch
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - "codex/**"
+  pull_request:
+
+jobs:
+  pester:
+    name: pester (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.5.0
+
+      - name: Run Pester suite
+        shell: pwsh
+        run: |
+          Import-Module Pester -MinimumVersion 5.5.0 -Force
+          Invoke-Pester -Path ./tests/claude-dispatch.tests.ps1 -CI
+
+      - name: Hidden smoke test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $repoPath = (Resolve-Path .).Path
+          $stateRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("gha-claude-dispatch-" + [guid]::NewGuid().ToString("N"))
+          $startScript = Join-Path $repoPath "plugins/claude-worker/skills/claude-worker/scripts/start-claude-dispatch.ps1"
+          $checkScript = Join-Path $repoPath "plugins/claude-worker/skills/claude-worker/scripts/check-claude-dispatch.ps1"
+          $cleanupScript = Join-Path $repoPath "plugins/claude-worker/skills/claude-worker/scripts/cleanup-claude-dispatch.ps1"
+          $fakeClaude = Join-Path $repoPath "tests/fixtures/fake-claude.ps1"
+
+          $env:FAKE_CLAUDE_BEHAVIOR = "touch-and-complete"
+          $env:FAKE_CLAUDE_TOUCH_FILE = "gha-smoke.txt"
+
+          $start = & $startScript `
+            -WorkingDirectory $repoPath `
+            -Prompt "Create gha-smoke.txt and exit successfully." `
+            -DisplayMode hidden `
+            -StateRoot $stateRoot `
+            -RunLabel "gha-smoke" `
+            -ClaudePath $fakeClaude | ConvertFrom-Json
+
+          $check = & $checkScript -RunId $start.runId -StateRoot $stateRoot -WaitSeconds 20 | ConvertFrom-Json
+
+          if ($check.status -ne "completed") {
+            throw "Expected completed status but got $($check.status)."
+          }
+
+          $workspaceFile = Join-Path $check.workspaceDirectory "gha-smoke.txt"
+          if (-not (Test-Path -LiteralPath $workspaceFile)) {
+            throw "Expected smoke output file at $workspaceFile."
+          }
+
+          $cleanup = & $cleanupScript -RunId $start.runId -StateRoot $stateRoot -Force | ConvertFrom-Json
+          if (-not $cleanup.removed) {
+            throw "Expected cleanup to remove state."
+          }

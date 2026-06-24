@@ -1,0 +1,22 @@
+{
+  "name": "claude-worker",
+  "version": "0.4.0",
+  "description": "Delegate implementation to normal Claude Code CLI with foreground interactive terminals, stable mirrorPool slots, hook-guarded safety, and file-based status coordination while Codex remains scheduler and reviewer.",
+  "author": {
+    "name": "token-ai"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Claude Worker",
+    "shortDescription": "Delegate to foreground Claude Code with visible terminal runs.",
+    "longDescription": "A Codex workflow plugin that sends implementation work to normal Claude Code CLI, defaults background runs to visible foreground terminals, supports stable mirrorPool slots for foreground work, keeps git worktree mode for compatibility, injects hooks for status/safety/stop checks through per-run settings, and coordinates related tasks through batch status files. Codex remains responsible for planning, scheduling, diff review, validation, and final acceptance.",
+    "developerName": "token-ai",
+    "category": "Productivity",
+    "capabilities": [
+      "workflow",
+      "local-cli",
+      "multi-run-orchestration"
+    ],
+    "defaultPrompt": "Use Claude Worker for this coding task: briefly plan, split only when ownership is clean, use synchronous dispatch for small tasks, use visible foreground background dispatch for larger tasks, prefer WorkspaceMode mirrorPool for foreground runs, coordinate related runs through batch status files, monitor status/events/final-report, review the slot/workspace diff, run validation, and only accept passing work."
+  }
+}

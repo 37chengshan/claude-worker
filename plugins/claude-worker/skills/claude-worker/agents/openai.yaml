@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude Code Review Loop"
+  short_description: "Delegate to Claude Code with visible mirrorPool runs."
+  default_prompt: "Use normal Claude Code CLI as the implementation executor. For small tasks, use synchronous dispatch. For longer foreground work, use visible background dispatch and prefer WorkspaceMode mirrorPool so Claude works in a stable slot repo instead of the real source repo. Coordinate related runs through batch status files when ownership is clean, review the actual slot/workspace diff, reject flawed attempts, run validation, and only accept passing work."
