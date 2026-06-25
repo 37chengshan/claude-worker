@@ -21,21 +21,6 @@ if ($CommonPath -and (Test-Path -LiteralPath $CommonPath)) {
   . $CommonPath
 }
 
-function Get-NowIso { return (Get-Date).ToString("o") }
-function ConvertTo-CompactJson { param($Value) return ($Value | ConvertTo-Json -Depth 16 -Compress) }
-function Add-Event {
-  param([string]$Name, $Payload)
-  if (-not $EventsPath) { return }
-  $dir = Split-Path -Parent $EventsPath
-  if ($dir) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-  Add-Content -LiteralPath $EventsPath -Value (ConvertTo-CompactJson ([ordered]@{ timestamp = Get-NowIso; event = $Name; data = $Payload })) -Encoding utf8
-}
-function Test-NonEmptyFile {
-  param([string]$Path)
-  if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return $false }
-  $content = Get-Content -LiteralPath $Path -Raw -ErrorAction SilentlyContinue
-  return (-not [string]::IsNullOrWhiteSpace($content))
-}
 function Write-VisibleProgress {
   param([string]$Message)
   if ($DisplayMode -ne "visible" -or [string]::IsNullOrWhiteSpace($Message)) { return }
@@ -160,7 +145,9 @@ if ($raw) {
   try { $inputObject = $raw | ConvertFrom-Json } catch { $inputObject = $null }
 }
 $event = if ($inputObject -and $inputObject.hook_event_name) { [string]$inputObject.hook_event_name } elseif ($EventName) { $EventName } else { "Unknown" }
-Add-Event -Name $event -Payload ([ordered]@{ toolName = if ($inputObject) { $inputObject.tool_name } else { $null }; input = $inputObject })
+if (Get-Command Append-DispatchEvent -ErrorAction SilentlyContinue) {
+  Append-DispatchEvent -EventsPath $EventsPath -EventName $event -Data ([ordered]@{ toolName = if ($inputObject) { $inputObject.tool_name } else { $null }; input = $inputObject })
+}
 
 if ($event -eq "UserPromptSubmit") {
   Write-VisibleProgress -Message "Claude accepted the task and is starting work."
@@ -185,6 +172,10 @@ if ($event -eq "PreToolUse") {
     }
     if ($cmd -match '(?i)\brm\s+-(rf|fr)\b|\bsudo\s+rm\b|\bdel\s+/[sq]\b') {
       Deny-PreToolUse -Reason "Dispatch safety policy blocks destructive delete commands."
+      exit 0
+    }
+    if ($cmd -match '(?i)(start-claude-dispatch|dispatch-claude)' -and $cmd -match '-DisplayMode\s+hidden') {
+      Deny-PreToolUse -Reason "Visible terminal principle: dispatch with -DisplayMode hidden is blocked by policy. Use -DisplayMode visible (the default) unless running in a test scenario."
       exit 0
     }
   }
@@ -235,7 +226,7 @@ if ($event -eq "Stop") {
   $maxStopBlocks = 3
 
   $status = Read-JsonFile -Path $StatusPath
-  $hasFinal = Test-NonEmptyFile -Path $FinalReportPath
+  $hasFinal = Test-DispatchFileHasContent -Path $FinalReportPath
   if (-not $hasFinal) {
     if ($stopBlockCount -ge $maxStopBlocks) {
       # Graceful degradation: allow stop after repeated blocks.
@@ -273,6 +264,68 @@ if ($event -eq "Stop") {
       exit 0
     }
   }
+  # Quality gate: run configured validation commands
+  $settingsPath = if ($StateDirectory) { Join-Path $StateDirectory "claude-settings.json" } else { $null }
+  if ($settingsPath -and (Test-Path -LiteralPath $settingsPath)) {
+    $hookSettings = Read-JsonFile -Path $settingsPath
+    if ($hookSettings -and $hookSettings.qualityGate -and $hookSettings.qualityGate.commands) {
+      $gateCommands = @($hookSettings.qualityGate.commands)
+      $gateTimeout = if ($hookSettings.qualityGate.timeoutSeconds) { [int]$hookSettings.qualityGate.timeoutSeconds } else { 300 }
+      $gateFailed = $false
+      $gateResults = @()
+
+      foreach ($gateCmd in $gateCommands) {
+        Write-VisibleProgress -Message "Quality gate: running $gateCmd"
+        try {
+          $gateOutput = ""
+          if ($CommonPath -and (Test-Path -LiteralPath $CommonPath)) {
+            $captureResult = Invoke-DispatchCommandCapture -CommandPath "cmd.exe" -ArgumentList @("/c", $gateCmd) -WorkingDirectory $WorkspaceDirectory -TimeoutSeconds $gateTimeout
+            $gateOutput = $captureResult.StandardOutput + "`n" + $captureResult.StandardError
+            if ($captureResult.ExitCode -ne 0) {
+              $gateFailed = $true
+              $gateResults += [ordered]@{ command = $gateCmd; exitCode = $captureResult.ExitCode; output = $gateOutput.Trim() }
+            } else {
+              $gateResults += [ordered]@{ command = $gateCmd; exitCode = 0; output = "(passed)" }
+            }
+          }
+        } catch {
+          $gateFailed = $true
+          $gateResults += [ordered]@{ command = $gateCmd; exitCode = -1; output = $_.Exception.Message }
+        }
+      }
+
+      if ($gateFailed) {
+        $gateReport = ($gateResults | ForEach-Object { "- $($_.command): exit $($_.output)" }) -join "`n"
+        if ($FinalReportPath -and (Test-Path -LiteralPath $FinalReportPath)) {
+          $existingReport = Get-Content -LiteralPath $FinalReportPath -Raw -ErrorAction SilentlyContinue
+          $gateSection = "`n`n## Quality Gate Failures`n`n$gateReport`n"
+          Set-Content -LiteralPath $FinalReportPath -Value ($existingReport + $gateSection) -Encoding utf8
+        }
+        if ($StatusPath) {
+          $gateStatus = Read-JsonFile -Path $StatusPath
+          if ($gateStatus) {
+            $gateStatus.phase = "failed"
+            $gateStatus.summary = "Quality gate failed: " + (($gateResults | Where-Object { $_.exitCode -ne 0 } | ForEach-Object { $_.command }) -join ", ")
+            Write-JsonFile -Path $StatusPath -Value $gateStatus
+          }
+        }
+        if ($stopBlockCountPath) {
+          Write-JsonFile -Path $stopBlockCountPath -Value ([ordered]@{ count = ($stopBlockCount + 1); lastBlockedAt = (Get-Date).ToString("o") })
+        }
+        [ordered]@{
+          decision = "block"
+          reason = "Quality gate failed. Fix the issues and update final-report.md with resolution."
+          hookSpecificOutput = [ordered]@{
+            hookEventName = "Stop"
+            additionalContext = "Quality gate failures:`n$gateReport`nFix these issues and re-validate before stopping."
+          }
+        } | ConvertTo-Json -Depth 8
+        exit 0
+      }
+      Write-VisibleProgress -Message "Quality gate: all commands passed."
+    }
+  }
+
   Write-VisibleProgress -Message "Claude finished and wrote the final report."
   exit 0
 }

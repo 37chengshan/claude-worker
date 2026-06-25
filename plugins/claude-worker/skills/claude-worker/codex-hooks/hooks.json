@@ -1,0 +1,48 @@
+{
+  "UserPromptSubmit": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node",
+          "args": [
+            "-e",
+            "const fs=require('fs');const p=process.env.WORKSPACE+'/.dispatch/state/alignment.json';let a;try{a=JSON.parse(fs.readFileSync(p,'utf8'))}catch(e){}if(!a||a.status!=='confirmed'){process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'UserPromptSubmit',additionalContext:'alignment.json not confirmed. Run $align-intent before dispatching. Missing: goal, successCriteria, constraints. Current status: '+(a?a.status:'not found')}}))}process.exit(0)"
+          ],
+          "timeout": 5
+        }
+      ]
+    }
+  ],
+  "PreToolUse": [
+    {
+      "matcher": "Bash",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node",
+          "args": [
+            "-e",
+            "const fs=require('fs');const input=JSON.parse(fs.readFileSync(0,'utf8'));const cmd=(input.tool_input?.command||'');if(!cmd.match(/start-claude-dispatch|dispatch-claude/i))process.exit(0);const p=process.env.WORKSPACE+'/.dispatch/state/alignment.json';let a;try{a=JSON.parse(fs.readFileSync(p,'utf8'))}catch(e){}if(!a||a.status!=='confirmed'){process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',permissionDecision:'deny',permissionDecisionReason:'Dispatch blocked by alignment gate. alignment.json status is '+(a?a.status:'not found')+'. Run $align-intent first.'}}))}process.exit(0)"
+          ],
+          "timeout": 5
+        }
+      ]
+    }
+  ],
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node",
+          "args": [
+            "-e",
+            "const fs=require('fs');const p=process.env.WORKSPACE+'/.dispatch/state/alignment.json';let a;try{a=JSON.parse(fs.readFileSync(p,'utf8'))}catch(e){}if(a&&a.status==='in-progress'){process.stdout.write(JSON.stringify({decision:'block',reason:'Alignment interview in-progress. Complete $align-intent and set status to confirmed before ending the session.'}))}process.exit(0)"
+          ],
+          "timeout": 5
+        }
+      ]
+    }
+  ]
+}

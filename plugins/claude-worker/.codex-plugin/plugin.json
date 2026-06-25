@@ -1,22 +1,25 @@
 {
   "name": "claude-worker",
-  "version": "0.4.0",
-  "description": "Delegate implementation to normal Claude Code CLI with foreground interactive terminals, stable mirrorPool slots, hook-guarded safety, and file-based status coordination while Codex remains scheduler and reviewer.",
+  "version": "2.0.0",
+  "description": "A Codex workflow plugin that sends implementation work to Claude Code CLI with alignment gates, quality gates, visible foreground terminals, stable mirrorPool slots, Q&A protocol, event-driven monitoring, one-click apply, and structured review. Codex remains the scheduler and reviewer.",
   "author": {
     "name": "token-ai"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "Claude Worker",
-    "shortDescription": "Delegate to foreground Claude Code with visible terminal runs.",
-    "longDescription": "A Codex workflow plugin that sends implementation work to normal Claude Code CLI, defaults background runs to visible foreground terminals, supports stable mirrorPool slots for foreground work, keeps git worktree mode for compatibility, injects hooks for status/safety/stop checks through per-run settings, and coordinates related tasks through batch status files. Codex remains responsible for planning, scheduling, diff review, validation, and final acceptance.",
+    "shortDescription": "Dispatch tasks to Claude Code with alignment gate, quality gates, visible terminals, and structured review.",
+    "longDescription": "A Codex workflow plugin for the full dispatch lifecycle: intent alignment via align-intent, task decomposition decision tree, background dispatch with visible mirrorPool slots, hook-guarded safety (PreToolUse deny rules, Stop block with quality gates), Q&A protocol for mid-run ambiguity, FileSystemWatcher event-driven monitoring, one-click apply of accepted changes, and dispatch-log history. Codex plans, dispatches, reviews, and accepts or rejects; Claude Code implements in isolated workspaces.",
     "developerName": "token-ai",
     "category": "Productivity",
     "capabilities": [
       "workflow",
       "local-cli",
-      "multi-run-orchestration"
+      "multi-run-orchestration",
+      "alignment-gate",
+      "quality-gate",
+      "event-driven-monitoring"
     ],
-    "defaultPrompt": "Use Claude Worker for this coding task: briefly plan, split only when ownership is clean, use synchronous dispatch for small tasks, use visible foreground background dispatch for larger tasks, prefer WorkspaceMode mirrorPool for foreground runs, coordinate related runs through batch status files, monitor status/events/final-report, review the slot/workspace diff, run validation, and only accept passing work."
+    "defaultPrompt": "Use Claude Worker for this coding task: run align-intent first to confirm intent, then choose dispatch mode using the task decomposition decision tree (sync vs background vs parallel vs serial). For small tasks, use synchronous dispatch. For larger tasks, use visible background dispatch with WorkspaceMode mirrorPool. Coordinate related runs through batch status files, use Q&A protocol when ambiguity arises, review changes against the post-dispatch checklist, run quality gates, apply accepted changes with apply-dispatch.ps1, and only accept passing work."
   }
 }

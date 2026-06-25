@@ -143,25 +143,56 @@ try {
 
     $terminalSignal = $null
     $exitCode = $null
-    while ($true) {
-      if ($claudeProcess.HasExited) {
-        $exitCode = $claudeProcess.ExitCode
-        break
+
+    # Event-driven monitoring with FileSystemWatcher
+    $watcher = $null
+    try {
+      $controlDir = Split-Path -Parent $metadata.statusPath
+      if ($controlDir -and (Test-Path -LiteralPath $controlDir)) {
+        $watcher = New-Object System.IO.FileSystemWatcher
+        $watcher.Path = $controlDir
+        $watcher.Filter = "*.json"
+        $watcher.NotifyFilter = [System.IO.NotifyFilters]::LastWrite -bor [System.IO.NotifyFilters]::FileName
+        $watcher.EnableRaisingEvents = $true
       }
 
-      $terminalSignal = Test-TerminalControlFiles -StatusPath $metadata.statusPath -FinalReportPath $metadata.finalReportPath
-      if ($terminalSignal) {
-        $exitCode = if ($terminalSignal.phase -eq "completed") { 0 } else { 1 }
-        Append-DispatchEvent -EventsPath $metadata.eventsPath -EventName "RunnerObservedTerminalControlFiles" -Data ([ordered]@{ phase = $terminalSignal.phase; pid = $claudeProcess.Id })
-        if (-not $claudeProcess.HasExited) {
-          Stop-Process -Id $claudeProcess.Id -Force -ErrorAction SilentlyContinue
-          [void]$claudeProcess.WaitForExit(5000)
-          Append-DispatchEvent -EventsPath $metadata.eventsPath -EventName "RunnerStoppedInteractiveClaude" -Data ([ordered]@{ pid = $claudeProcess.Id; phase = $terminalSignal.phase })
+      $checkInterval = 500  # ms fallback poll
+      $elapsed = [System.Diagnostics.Stopwatch]::StartNew()
+
+      while ($true) {
+        if ($claudeProcess.HasExited) {
+          $exitCode = $claudeProcess.ExitCode
+          break
         }
-        break
-      }
 
-      Start-Sleep -Seconds 1
+        # Wait for filesystem event or fallback timeout
+        $eventReceived = $false
+        if ($watcher) {
+          $result = $watcher.WaitForChanged([System.IO.WatcherChangeTypes]::Changed -bor [System.IO.WatcherChangeTypes]::Created, $checkInterval)
+          if (-not $result.TimedOut) {
+            $eventReceived = $true
+          }
+        } else {
+          Start-Sleep -Milliseconds $checkInterval
+        }
+
+        # Check terminal control files on event or periodic fallback
+        $terminalSignal = Test-TerminalControlFiles -StatusPath $metadata.statusPath -FinalReportPath $metadata.finalReportPath
+        if ($terminalSignal) {
+          $exitCode = if ($terminalSignal.phase -eq "completed") { 0 } else { 1 }
+          Append-DispatchEvent -EventsPath $metadata.eventsPath -EventName "RunnerObservedTerminalControlFiles" -Data ([ordered]@{ phase = $terminalSignal.phase; pid = $claudeProcess.Id; eventDriven = $eventReceived })
+          if (-not $claudeProcess.HasExited) {
+            Stop-Process -Id $claudeProcess.Id -Force -ErrorAction SilentlyContinue
+            [void]$claudeProcess.WaitForExit(5000)
+            Append-DispatchEvent -EventsPath $metadata.eventsPath -EventName "RunnerStoppedInteractiveClaude" -Data ([ordered]@{ pid = $claudeProcess.Id; phase = $terminalSignal.phase })
+          }
+          break
+        }
+      }
+    } finally {
+      if ($watcher) {
+        $watcher.Dispose()
+      }
     }
   }
   Append-DispatchEvent -EventsPath $metadata.eventsPath -EventName "RunnerClaudeExited" -Data ([ordered]@{ exitCode = $exitCode })

@@ -25,7 +25,8 @@ param(
   [string[]]$DependencyRunIds = @(),
   [string]$ClaudePath = "",
   [ValidateSet("onFailure", "always", "never")]
-  [string]$HoldOnExit = "onFailure"
+  [string]$HoldOnExit = "onFailure",
+  [string[]]$QualityGateCommands = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -242,6 +243,22 @@ $dependencyRunIdsText
 ## User task
 
 $effectivePrompt
+$(if (Test-Path -LiteralPath (Join-Path (Join-Path $resolvedStateRoot "state") "alignment.json")) {
+  $alignData = Read-JsonFile -Path (Join-Path (Join-Path $resolvedStateRoot "state") "alignment.json")
+  if ($alignData -and $alignData.status -eq "confirmed") {
+    @"
+
+## Acceptance Criteria (from alignment)
+
+- **Goal:** $($alignData.goal)
+- **Success Criteria:** $($alignData.successCriteria)
+- **Constraints:** $($alignData.constraints)
+- **Non-Goals:** $($alignData.nonGoals)
+
+Use these criteria to judge task completion. The task is done ONLY when all success criteria are met.
+"@
+  }
+})
 "@
 Set-Content -LiteralPath $taskSourcePath -Value $taskDocument -Encoding utf8
 $workspaceControlPaths = Initialize-DispatchWorkspaceControlFiles `
@@ -321,6 +338,14 @@ if (-not $DisableHooks) {
     MessageDisplay = @([ordered]@{ hooks = @((New-HookCommandSpec -EventName "MessageDisplay")) })
   }
 }
+$qualityGateConfig = $null
+if ($QualityGateCommands -and $QualityGateCommands.Count -gt 0) {
+  $qualityGateConfig = [ordered]@{
+    commands = $QualityGateCommands
+    timeoutSeconds = 300
+  }
+}
+
 $settings = [ordered]@{
   permissions = [ordered]@{
     defaultMode = "acceptEdits"
@@ -342,6 +367,7 @@ $settings = [ordered]@{
     )
   }
   hooks = $hooksConfig
+  qualityGate = $qualityGateConfig
 }
 Write-JsonFile -Path $settingsPath -Value $settings
 Append-DispatchEvent -EventsPath $eventsPath -EventName "DispatchCreated" -Data ([ordered]@{ runId = $runId; runLabel = $RunLabel; claudeRunMode = $ClaudeRunMode; displayMode = $DisplayMode; permissionMode = $PermissionMode; hooksEnabled = (-not $DisableHooks) })

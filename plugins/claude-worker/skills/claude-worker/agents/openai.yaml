@@ -1,4 +1,4 @@
 interface:
-  display_name: "Claude Code Review Loop"
-  short_description: "Delegate to Claude Code with visible mirrorPool runs."
-  default_prompt: "Use normal Claude Code CLI as the implementation executor. For small tasks, use synchronous dispatch. For longer foreground work, use visible background dispatch and prefer WorkspaceMode mirrorPool so Claude works in a stable slot repo instead of the real source repo. Coordinate related runs through batch status files when ownership is clean, review the actual slot/workspace diff, reject flawed attempts, run validation, and only accept passing work."
+  display_name: "Claude Worker"
+  short_description: "Dispatch tasks to Claude Code with alignment gate, visible mirrorPool runs, quality gates, and structured review."
+  default_prompt: "Use normal Claude Code CLI as the implementation executor. Run align-intent first to confirm intent alignment before dispatching. For small tasks, use synchronous dispatch; for longer foreground work, use visible background dispatch with WorkspaceMode mirrorPool. Choose dispatch mode using the task decomposition decision tree (sync vs background vs parallel vs serial). Coordinate related runs through batch status files, use the Q&A protocol when ambiguity arises, review changes against the post-dispatch checklist, run quality gates, apply accepted changes with apply-dispatch.ps1, and only accept passing work."

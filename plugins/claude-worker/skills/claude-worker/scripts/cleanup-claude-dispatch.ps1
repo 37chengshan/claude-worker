@@ -32,6 +32,44 @@ if ($workspaceMode -eq "mirrorPool") {
 }
 Remove-DispatchBatchArtifacts -Metadata $metadata
 
+# Append to dispatch log
+$dispatchLogPath = Join-Path $resolvedStateRoot "dispatch-log.ndjson"
+$finalReportPath = if ($metadata.PSObject.Properties.Name -contains "finalReportPath") { [string]$metadata.finalReportPath } else { "" }
+$finalReportContent = ""
+if ($finalReportPath -and (Test-Path -LiteralPath $finalReportPath)) {
+  $finalReportContent = Get-Content -LiteralPath $finalReportPath -Raw -ErrorAction SilentlyContinue
+}
+$hasFinalReport = -not [string]::IsNullOrWhiteSpace($finalReportContent)
+
+$statusPath = if ($metadata.PSObject.Properties.Name -contains "statusPath") { [string]$metadata.statusPath } else { "" }
+$currentStatus = if ($statusPath) { Read-JsonFile -Path $statusPath } else { $null }
+$currentPhase = if ($currentStatus -and $currentStatus.phase) { [string]$currentStatus.phase } else { "unknown" }
+$summary = if ($currentStatus -and $currentStatus.summary) { [string]$currentStatus.summary } else { "" }
+$exitCode = if ($metadata.PSObject.Properties.Name -contains "exitCode") { $metadata.exitCode } else { $null }
+$resultLabel = if ($exitCode -eq 0 -and $hasFinalReport) { "accepted" } else { "rejected" }
+
+$logEntry = [ordered]@{
+  timestamp = Get-DispatchTimestamp
+  runId = [string]$metadata.runId
+  runLabel = if ($metadata.PSObject.Properties.Name -contains "runLabel") { [string]$metadata.runLabel } else { "" }
+  batchId = if ($metadata.PSObject.Properties.Name -contains "batchId") { [string]$metadata.batchId } else { "" }
+  result = $resultLabel
+  phase = $currentPhase
+  exitCode = $exitCode
+  summary = $summary
+  workspaceMode = $workspaceMode
+  sourceWorkingDirectory = [string]$metadata.sourceWorkingDirectory
+  prompt = if ($metadata.PSObject.Properties.Name -contains "promptPath") {
+    $pp = [string]$metadata.promptPath
+    if ($pp -and (Test-Path -LiteralPath $pp)) {
+      $raw = Get-Content -LiteralPath $pp -Raw -ErrorAction SilentlyContinue
+      if ($raw.Length -gt 200) { $raw.Substring(0, 200) + "..." } else { $raw }
+    } else { "" }
+  } else { "" }
+}
+
+Add-Content -LiteralPath $dispatchLogPath -Value ($logEntry | ConvertTo-Json -Depth 8 -Compress) -Encoding utf8
+
 if (Test-Path -LiteralPath $StateDirectory) {
   Remove-Item -LiteralPath $StateDirectory -Recurse -Force
 }

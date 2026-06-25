@@ -55,77 +55,7 @@ function Invoke-JsonScript {
   return ($output | ConvertFrom-Json)
 }
 
-function Assert-Equal {
-  param(
-    $Actual,
-    $Expected,
-    [string]$Message
-  )
-
-  if ($Actual -ne $Expected) {
-    throw ($Message + " Expected: '$Expected'. Actual: '$Actual'.")
-  }
-}
-
-function Assert-NotEqual {
-  param(
-    $Actual,
-    $Unexpected,
-    [string]$Message
-  )
-
-  if ($Actual -eq $Unexpected) {
-    throw ($Message + " Unexpected value: '$Unexpected'.")
-  }
-}
-
-function Assert-True {
-  param(
-    [bool]$Condition,
-    [string]$Message
-  )
-
-  if (-not $Condition) {
-    throw $Message
-  }
-}
-
-function Assert-Match {
-  param(
-    [string]$Actual,
-    [string]$Pattern,
-    [string]$Message
-  )
-
-  if ($Actual -notmatch $Pattern) {
-    throw ($Message + " Pattern: $Pattern")
-  }
-}
-
-function Assert-NullOrEmpty {
-  param(
-    $Actual,
-    [string]$Message
-  )
-
-  if ($null -eq $Actual) {
-    return
-  }
-
-  if ($Actual -is [string]) {
-    if ([string]::IsNullOrEmpty($Actual)) {
-      return
-    }
-  } elseif ($Actual -is [System.Collections.IEnumerable]) {
-    if (@($Actual).Count -eq 0) {
-      return
-    }
-  }
-
-  throw $Message
-}
-
-Describe "Claude dispatch v0.4 scripts" {
+Describe "Claude dispatch v2.0 scripts" {
   BeforeEach {
     $env:FAKE_CLAUDE_BEHAVIOR = $null
     $env:FAKE_CLAUDE_TOUCH_FILE = $null
@@ -161,39 +91,39 @@ Describe "Claude dispatch v0.4 scripts" {
       WaitSeconds = 10
     }
 
-    Assert-Equal $check.status "completed" "Expected run status to be completed."
-    Assert-Equal $check.batchId "batch-1" "Expected batch id to be preserved."
-    Assert-NotEqual $check.workspaceDirectory $repoPath "Expected isolated workspace instead of source repo path."
-    Assert-True ($check.ownedPaths -contains "src/owned.txt") "Expected owned paths to include src/owned.txt."
-    Assert-True ($check.changedFiles.path -contains "worker-output.txt") "Expected changed files to include worker-output.txt."
-    Assert-Match $check.taskPath '\\\.claude-dispatch\\TASK\.md$' "Expected task path to live in the workspace control directory."
-    Assert-Match $check.statusPath '\\\.claude-dispatch\\status\.json$' "Expected status path to live in the workspace control directory."
-    Assert-Match $check.finalReportPath '\\\.claude-dispatch\\final-report\.md$' "Expected final report path to live in the workspace control directory."
-    Assert-True (Test-Path -LiteralPath $check.statusPath) "Expected status.json to exist."
-    Assert-True (Test-Path -LiteralPath (Join-Path $stateRoot "batches\batch-1\batch.json")) "Expected batch.json to exist."
-    Assert-True (Test-Path -LiteralPath (Join-Path $stateRoot "batches\batch-1\handoffs\$($start.runId)")) "Expected handoff directory to exist."
-    Assert-True (Test-Path -LiteralPath (Join-Path $stateRoot "batches\batch-1\runs\$($start.runId)\status.json")) "Expected canonical batch status file to exist."
+    $check.status | Should -Be "completed" -Because "Expected run status to be completed."
+    $check.batchId | Should -Be "batch-1" -Because "Expected batch id to be preserved."
+    $check.workspaceDirectory | Should -Not -Be $repoPath -Because "Expected isolated workspace instead of source repo path."
+    $check.ownedPaths | Should -Contain "src/owned.txt" -Because "Expected owned paths to include src/owned.txt."
+    $check.changedFiles.path | Should -Contain "worker-output.txt" -Because "Expected changed files to include worker-output.txt."
+    $check.taskPath | Should -Match '\\\.claude-dispatch\\TASK\.md$' -Because "Expected task path to live in the workspace control directory."
+    $check.statusPath | Should -Match '\\\.claude-dispatch\\status\.json$' -Because "Expected status path to live in the workspace control directory."
+    $check.finalReportPath | Should -Match '\\\.claude-dispatch\\final-report\.md$' -Because "Expected final report path to live in the workspace control directory."
+    (Test-Path -LiteralPath $check.statusPath) | Should -BeTrue -Because "Expected status.json to exist."
+    (Test-Path -LiteralPath (Join-Path $stateRoot "batches\batch-1\batch.json")) | Should -BeTrue -Because "Expected batch.json to exist."
+    (Test-Path -LiteralPath (Join-Path $stateRoot "batches\batch-1\handoffs\$($start.runId)")) | Should -BeTrue -Because "Expected handoff directory to exist."
+    (Test-Path -LiteralPath (Join-Path $stateRoot "batches\batch-1\runs\$($start.runId)\status.json")) | Should -BeTrue -Because "Expected canonical batch status file to exist."
 
     $status = Get-Content -LiteralPath $check.statusPath -Raw | ConvertFrom-Json
-    Assert-Equal $status.phase "completed" "Expected status phase to be completed."
-    Assert-True ($status.ownedPaths -contains "worker-output.txt") "Expected status owned paths to include worker-output.txt."
-    Assert-NullOrEmpty $status.blockedOn "Expected blockedOn to be empty."
+    $status.phase | Should -Be "completed" -Because "Expected status phase to be completed."
+    $status.ownedPaths | Should -Contain "worker-output.txt" -Because "Expected status owned paths to include worker-output.txt."
+    $status.blockedOn | Should -BeNullOrEmpty -Because "Expected blockedOn to be empty."
 
     $batch = Get-Content -LiteralPath (Join-Path $stateRoot "batches\batch-1\batch.json") -Raw | ConvertFrom-Json
-    Assert-True ((($batch.runs | ForEach-Object { $_.runId } | Where-Object { $_ -eq $start.runId }).Count -gt 0)) "Expected batch runs to include the started run."
-    Assert-True ((($batch.runs | ForEach-Object { @($_.dependsOnRunIds) } | ForEach-Object { $_ } | Where-Object { $_ -eq "run-bootstrap" }).Count -gt 0)) "Expected dependency run ids to include run-bootstrap."
+    (($batch.runs | ForEach-Object { $_.runId } | Where-Object { $_ -eq $start.runId }).Count -gt 0) | Should -BeTrue -Because "Expected batch runs to include the started run."
+    (($batch.runs | ForEach-Object { @($_.dependsOnRunIds) } | ForEach-Object { $_ } | Where-Object { $_ -eq "run-bootstrap" }).Count -gt 0) | Should -BeTrue -Because "Expected dependency run ids to include run-bootstrap."
 
     $promptText = Get-Content -LiteralPath (Join-Path $start.stateDirectory "prompt.txt") -Raw
     $taskText = Get-Content -LiteralPath $check.taskPath -Raw
-    Assert-Match $promptText 'update-claude-dispatch-status\.ps1' "Expected batch prompt to include the status helper path."
-    Assert-Match $promptText 'write-claude-dispatch-handoff\.ps1' "Expected batch prompt to include the handoff helper path."
-    Assert-Match $promptText 'Status helper example:' "Expected batch prompt to include the helper usage example."
-    Assert-Match $promptText 'Handoff helper example:' "Expected batch prompt to include the handoff usage example."
-    Assert-Match $promptText 'powershell(\.exe)? .*?-File .*?update-claude-dispatch-status\.ps1' "Expected batch status helper example to be shell-compatible."
-    Assert-Match $taskText 'Use the workspace control directory above as the source of truth' "Expected task contract to emphasize the workspace control directory."
-    Assert-Match $taskText 'Write the final report to the exact final report path shown above\.' "Expected task contract to emphasize the exact final report path."
-    Assert-Match $taskText 'Prefer direct Read/Write/Edit updates on status\.json and final-report\.md inside the workspace control directory\.' "Expected task contract to prefer direct control-file edits for foreground work."
-    Assert-Match $taskText 'Workspace-root status helper shortcut: powershell(\.exe)? .*?-File .*?update-claude-dispatch-status\.ps1' "Expected single-run status helper shortcut to use a shell-compatible PowerShell invocation."
+    $promptText | Should -Match 'update-claude-dispatch-status\.ps1' -Because "Expected batch prompt to include the status helper path."
+    $promptText | Should -Match 'write-claude-dispatch-handoff\.ps1' -Because "Expected batch prompt to include the handoff helper path."
+    $promptText | Should -Match 'Status helper example:' -Because "Expected batch prompt to include the helper usage example."
+    $promptText | Should -Match 'Handoff helper example:' -Because "Expected batch prompt to include the handoff usage example."
+    $promptText | Should -Match 'powershell(\.exe)? .*?-File .*?update-claude-dispatch-status\.ps1' -Because "Expected batch status helper example to be shell-compatible."
+    $taskText | Should -Match 'Use the workspace control directory above as the source of truth' -Because "Expected task contract to emphasize the workspace control directory."
+    $taskText | Should -Match 'Write the final report to the exact final report path shown above\.' -Because "Expected task contract to emphasize the exact final report path."
+    $taskText | Should -Match 'Prefer direct Read/Write/Edit updates on status\.json and final-report\.md inside the workspace control directory\.' -Because "Expected task contract to prefer direct control-file edits for foreground work."
+    $taskText | Should -Match 'Workspace-root status helper shortcut: powershell(\.exe)? .*?-File .*?update-claude-dispatch-status\.ps1' -Because "Expected single-run status helper shortcut to use a shell-compatible PowerShell invocation."
   }
 
   It "builds cross-platform launcher specs for visible and hidden runs" {
@@ -207,9 +137,9 @@ Describe "Claude dispatch v0.4 scripts" {
       -RunnerArguments @("-File", "runner.ps1") `
       -WindowTitle "dispatch-visible"
 
-    Assert-Equal $windowsVisible.FilePath "C:\Windows\System32\wt.exe" "Expected visible Windows launcher to use wt.exe."
-    Assert-Equal $windowsVisible.ArgumentList[0] "-w" "Expected wt launcher to start with -w."
-    Assert-True ($windowsVisible.ArgumentList -contains "nt") "Expected wt launcher to include new-tab token."
+    $windowsVisible.FilePath | Should -Be "C:\Windows\System32\wt.exe" -Because "Expected visible Windows launcher to use wt.exe."
+    $windowsVisible.ArgumentList[0] | Should -Be "-w" -Because "Expected wt launcher to start with -w."
+    $windowsVisible.ArgumentList | Should -Contain "nt" -Because "Expected wt launcher to include new-tab token."
 
     $windowsHidden = New-DispatchLauncherSpec `
       -Platform "Windows" `
@@ -218,8 +148,8 @@ Describe "Claude dispatch v0.4 scripts" {
       -RunnerArguments @("-File", "runner.ps1") `
       -WindowTitle "dispatch-hidden"
 
-    Assert-Equal $windowsHidden.FilePath "powershell.exe" "Expected hidden Windows launcher to use powershell.exe."
-    Assert-Equal $windowsHidden.WindowStyle "Hidden" "Expected hidden Windows launcher to request hidden window style."
+    $windowsHidden.FilePath | Should -Be "powershell.exe" -Because "Expected hidden Windows launcher to use powershell.exe."
+    $windowsHidden.WindowStyle | Should -Be "Hidden" -Because "Expected hidden Windows launcher to request hidden window style."
 
     $macVisible = New-DispatchLauncherSpec `
       -Platform "MacOS" `
@@ -228,8 +158,8 @@ Describe "Claude dispatch v0.4 scripts" {
       -RunnerArguments @("-File", "/tmp/runner.ps1") `
       -WindowTitle "dispatch-mac"
 
-    Assert-Equal $macVisible.FilePath "osascript" "Expected visible macOS launcher to use osascript."
-    Assert-True ($macVisible.ArgumentList -contains "-e") "Expected macOS launcher to pass AppleScript via -e."
+    $macVisible.FilePath | Should -Be "osascript" -Because "Expected visible macOS launcher to use osascript."
+    $macVisible.ArgumentList | Should -Contain "-e" -Because "Expected macOS launcher to pass AppleScript via -e."
   }
 
   It "quotes launcher arguments for visible Windows runs with spaces" {
@@ -251,10 +181,10 @@ Describe "Claude dispatch v0.4 scripts" {
       -StartingDirectory "C:\Temp Folder\workspace"
 
     $commandLine = Join-ProcessArgumentList -Arguments $spec.ArgumentList
-    Assert-Match $commandLine '"Claude Dispatch visible-smoke"' "Expected quoted window title in launcher command line."
-    Assert-Match $commandLine '"C:\\Temp Folder\\workspace"' "Expected quoted starting directory in launcher command line."
-    Assert-Match $commandLine '"C:\\Temp Folder\\runner.ps1"' "Expected quoted runner path in launcher command line."
-    Assert-Match $commandLine '"C:\\Temp Folder\\prompt file.txt"' "Expected quoted prompt path in launcher command line."
+    $commandLine | Should -Match '"Claude Dispatch visible-smoke"' -Because "Expected quoted window title in launcher command line."
+    $commandLine | Should -Match '"C:\\Temp Folder\\workspace"' -Because "Expected quoted starting directory in launcher command line."
+    $commandLine | Should -Match '"C:\\Temp Folder\\runner.ps1"' -Because "Expected quoted runner path in launcher command line."
+    $commandLine | Should -Match '"C:\\Temp Folder\\prompt file.txt"' -Because "Expected quoted prompt path in launcher command line."
   }
 
   It "resolves a Windows Claude PowerShell shim to a safer foreground launcher" {
@@ -273,7 +203,7 @@ Describe "Claude dispatch v0.4 scripts" {
 
     $resolved = Resolve-DispatchClaudePath -ClaudePath $ps1Path -Platform "Windows"
 
-    Assert-Equal $resolved $exePath "Expected Windows foreground dispatch to prefer a non-PowerShell Claude launcher."
+    $resolved | Should -Be $exePath -Because "Expected Windows foreground dispatch to prefer a non-PowerShell Claude launcher."
   }
 
   It "puts the interactive Claude prompt before flags and keeps print mode explicit" {
@@ -286,8 +216,8 @@ Describe "Claude dispatch v0.4 scripts" {
       -ClaudeRunMode "interactive" `
       -InitialPrompt "Read TASK.md and begin."
 
-    Assert-Equal $interactiveArguments[0] "Read TASK.md and begin." "Expected the interactive prompt to be the first Claude argument."
-    Assert-Equal $interactiveArguments[1] "--permission-mode" "Expected interactive mode flags to follow the prompt."
+    $interactiveArguments[0] | Should -Be "Read TASK.md and begin." -Because "Expected the interactive prompt to be the first Claude argument."
+    $interactiveArguments[1] | Should -Be "--permission-mode" -Because "Expected interactive mode flags to follow the prompt."
 
     $printArguments = Get-DispatchClaudeArguments `
       -PermissionMode "bypassPermissions" `
@@ -296,8 +226,8 @@ Describe "Claude dispatch v0.4 scripts" {
       -ClaudeRunMode "print" `
       -InitialPrompt "Read TASK.md and begin."
 
-    Assert-True ($printArguments -contains "-p") "Expected print mode to include the -p flag."
-    Assert-Equal $printArguments[-1] "Read TASK.md and begin." "Expected print mode to pass the prompt after -p."
+    $printArguments | Should -Contain "-p" -Because "Expected print mode to include the -p flag."
+    $printArguments[-1] | Should -Be "Read TASK.md and begin." -Because "Expected print mode to pass the prompt after -p."
   }
 
   It "times out command capture so trust prewarm cannot block foreground launch forever" {
@@ -314,10 +244,10 @@ Describe "Claude dispatch v0.4 scripts" {
         -TimeoutSeconds 1
       $elapsedSeconds = ((Get-Date) - $startedAt).TotalSeconds
 
-      Assert-Equal $result.TimedOut $true "Expected command capture to report a timeout."
-      Assert-Equal $result.ExitCode -408 "Expected timeout exit code."
-      Assert-Match $result.StandardError "timed out" "Expected timeout message in stderr."
-      Assert-True ($elapsedSeconds -lt 10) "Expected timeout to return quickly."
+      $result.TimedOut | Should -Be $true -Because "Expected command capture to report a timeout."
+      $result.ExitCode | Should -Be -408 -Because "Expected timeout exit code."
+      $result.StandardError | Should -Match "timed out" -Because "Expected timeout message in stderr."
+      $elapsedSeconds | Should -BeLessThan 10 -Because "Expected timeout to return quickly."
     } finally {
       Remove-Item Env:\FAKE_CLAUDE_BEHAVIOR -ErrorAction SilentlyContinue
       Remove-Item Env:\FAKE_CLAUDE_SLEEP_SECONDS -ErrorAction SilentlyContinue
@@ -344,13 +274,13 @@ Describe "Claude dispatch v0.4 scripts" {
     }
 
     $runMeta = Get-Content -LiteralPath (Join-Path $start.stateDirectory "run.json") -Raw
-    Assert-Match $runMeta '"displayMode"\s*:\s*"hidden"' "Expected run metadata to record hidden display mode."
-    Assert-Match $runMeta '"holdOnExit"\s*:\s*"always"' "Expected run metadata to record holdOnExit."
+    $runMeta | Should -Match '"displayMode"\s*:\s*"hidden"' -Because "Expected run metadata to record hidden display mode."
+    $runMeta | Should -Match '"holdOnExit"\s*:\s*"always"' -Because "Expected run metadata to record holdOnExit."
 
     $runnerScriptText = Get-Content -LiteralPath (Join-Path $start.stateDirectory "runner.ps1") -Raw
-    Assert-Match $runnerScriptText '\[string\]\$DisplayMode' "Expected runner script to accept DisplayMode."
-    Assert-Match $runnerScriptText '\[string\]\$HoldOnExit' "Expected runner script to accept HoldOnExit."
-    Assert-Match $runMeta '"windowTitle"\s*:\s*"Claude Dispatch hold-check"' "Expected run metadata to record the visible window title."
+    $runnerScriptText | Should -Match '\[string\]\$DisplayMode' -Because "Expected runner script to accept DisplayMode."
+    $runnerScriptText | Should -Match '\[string\]\$HoldOnExit' -Because "Expected runner script to accept HoldOnExit."
+    $runMeta | Should -Match '"windowTitle"\s*:\s*"Claude Dispatch hold-check"' -Because "Expected run metadata to record the visible window title."
   }
 
   It "lists active and completed runs across standalone and batch directories" {
@@ -384,9 +314,9 @@ Describe "Claude dispatch v0.4 scripts" {
     Start-Sleep -Seconds 2
     $list = Invoke-JsonScript -Path $listScript -Parameters @{ StateRoot = $stateRoot }
 
-    Assert-True ($list.runs.runId -contains $standalone.runId) "Expected standalone run to appear in list output."
-    Assert-True ($list.runs.runId -contains $batched.runId) "Expected batched run to appear in list output."
-    Assert-Equal (($list.runs | Where-Object { $_.runId -eq $batched.runId }).batchId) "batch-2" "Expected listed batched run to keep its batch id."
+    $list.runs.runId | Should -Contain $standalone.runId -Because "Expected standalone run to appear in list output."
+    $list.runs.runId | Should -Contain $batched.runId -Because "Expected batched run to appear in list output."
+    (($list.runs | Where-Object { $_.runId -eq $batched.runId }).batchId) | Should -Be "batch-2" -Because "Expected listed batched run to keep its batch id."
   }
 
   It "stops long-running tasks and cleans up run state and worktrees" {
@@ -415,7 +345,7 @@ Describe "Claude dispatch v0.4 scripts" {
       StateRoot = $stateRoot
     }
 
-    Assert-Equal $stop.status "stopped" "Expected stopped status after controller stop."
+    $stop.status | Should -Be "stopped" -Because "Expected stopped status after controller stop."
 
     $cleanup = Invoke-JsonScript -Path $cleanupScript -Parameters @{
       RunId = $start.runId
@@ -423,10 +353,10 @@ Describe "Claude dispatch v0.4 scripts" {
       Force = $true
     }
 
-    Assert-True $cleanup.removed "Expected cleanup to remove run state."
-    Assert-Equal (Test-Path -LiteralPath $cleanup.stateDirectory) $false "Expected state directory to be deleted."
+    $cleanup.removed | Should -BeTrue -Because "Expected cleanup to remove run state."
+    (Test-Path -LiteralPath $cleanup.stateDirectory) | Should -Be $false -Because "Expected state directory to be deleted."
     if ($cleanup.workspaceDirectory -and ($cleanup.workspaceDirectory -ne $cleanup.sourceWorkingDirectory)) {
-      Assert-Equal (Test-Path -LiteralPath $cleanup.workspaceDirectory) $false "Expected isolated workspace to be deleted."
+      (Test-Path -LiteralPath $cleanup.workspaceDirectory) | Should -Be $false -Because "Expected isolated workspace to be deleted."
     }
   }
 
@@ -450,9 +380,9 @@ Describe "Claude dispatch v0.4 scripts" {
     }
 
     $batchRoot = Join-Path $stateRoot "batches\batch-cleanup"
-    Assert-True (Test-Path -LiteralPath (Join-Path $batchRoot "batch.json")) "Expected batch.json to exist before cleanup."
-    Assert-True (Test-Path -LiteralPath (Join-Path $batchRoot "runs\$($start.runId)\status.json")) "Expected batch run status to exist before cleanup."
-    Assert-True (Test-Path -LiteralPath (Join-Path $batchRoot "handoffs\$($start.runId)")) "Expected batch handoff directory to exist before cleanup."
+    (Test-Path -LiteralPath (Join-Path $batchRoot "batch.json")) | Should -BeTrue -Because "Expected batch.json to exist before cleanup."
+    (Test-Path -LiteralPath (Join-Path $batchRoot "runs\$($start.runId)\status.json")) | Should -BeTrue -Because "Expected batch run status to exist before cleanup."
+    (Test-Path -LiteralPath (Join-Path $batchRoot "handoffs\$($start.runId)")) | Should -BeTrue -Because "Expected batch handoff directory to exist before cleanup."
 
     $cleanup = Invoke-JsonScript -Path $cleanupScript -Parameters @{
       RunId = $start.runId
@@ -460,8 +390,8 @@ Describe "Claude dispatch v0.4 scripts" {
       Force = $true
     }
 
-    Assert-True $cleanup.removed "Expected cleanup to remove the batched run."
-    Assert-Equal (Test-Path -LiteralPath $batchRoot) $false "Expected empty batch root to be deleted."
+    $cleanup.removed | Should -BeTrue -Because "Expected cleanup to remove the batched run."
+    (Test-Path -LiteralPath $batchRoot) | Should -Be $false -Because "Expected empty batch root to be deleted."
   }
 
   It "updates status and writes handoff files through worker helper scripts" {
@@ -493,10 +423,10 @@ Describe "Claude dispatch v0.4 scripts" {
       Progress = 75
     }
 
-    Assert-Equal $updatedStatus.phase "blocked" "Expected helper script to update the phase."
-    Assert-Equal $updatedStatus.summary "Waiting for an upstream decision." "Expected helper script to update the summary."
-    Assert-True ($updatedStatus.blockedOn -contains "run-upstream") "Expected helper script to persist blockedOn values."
-    Assert-Equal $updatedStatus.progress 75 "Expected helper script to persist progress."
+    $updatedStatus.phase | Should -Be "blocked" -Because "Expected helper script to update the phase."
+    $updatedStatus.summary | Should -Be "Waiting for an upstream decision." -Because "Expected helper script to update the summary."
+    $updatedStatus.blockedOn | Should -Contain "run-upstream" -Because "Expected helper script to persist blockedOn values."
+    $updatedStatus.progress | Should -Be 75 -Because "Expected helper script to persist progress."
 
     $handoff = Invoke-JsonScript -Path $handoffHelperScript -Parameters @{
       HandoffDirectory = $start.handoffDirectory
@@ -507,10 +437,10 @@ Describe "Claude dispatch v0.4 scripts" {
       NextStep = "Read my status file and continue."
     }
 
-    Assert-True (Test-Path -LiteralPath $handoff.path) "Expected handoff helper to create a handoff file."
-    Assert-Equal $handoff.handoff.fromRunId $start.runId "Expected handoff helper to preserve fromRunId."
-    Assert-Equal $handoff.handoff.summary "Ready for downstream work." "Expected handoff helper to preserve the summary."
-    Assert-True ($handoff.handoff.relatedPaths -contains "worker-output.txt") "Expected handoff helper to persist related paths."
+    (Test-Path -LiteralPath $handoff.path) | Should -BeTrue -Because "Expected handoff helper to create a handoff file."
+    $handoff.handoff.fromRunId | Should -Be $start.runId -Because "Expected handoff helper to preserve fromRunId."
+    $handoff.handoff.summary | Should -Be "Ready for downstream work." -Because "Expected handoff helper to preserve the summary."
+    $handoff.handoff.relatedPaths | Should -Contain "worker-output.txt" -Because "Expected handoff helper to persist related paths."
   }
 
   It "lets the worker status helper resolve the workspace control status file from RunId in the workspace" {
@@ -540,13 +470,13 @@ Describe "Claude dispatch v0.4 scripts" {
       Progress = 75
     } -WorkingDirectory $start.workspaceDirectory
 
-    Assert-Equal $updatedStatus.runId $start.runId "Expected helper script to resolve the matching run id."
-    Assert-Equal $updatedStatus.phase "running" "Expected helper script to update the phase from RunId."
-    Assert-Equal $updatedStatus.summary "Foreground worker updated status from the workspace." "Expected helper script to update the summary from RunId."
+    $updatedStatus.runId | Should -Be $start.runId -Because "Expected helper script to resolve the matching run id."
+    $updatedStatus.phase | Should -Be "running" -Because "Expected helper script to update the phase from RunId."
+    $updatedStatus.summary | Should -Be "Foreground worker updated status from the workspace." -Because "Expected helper script to update the summary from RunId."
 
     $status = Get-Content -LiteralPath $start.statusPath -Raw | ConvertFrom-Json
-    Assert-Equal $status.summary "Foreground worker updated status from the workspace." "Expected helper script to persist the summary to the workspace control status file."
-    Assert-Equal $status.progress 75 "Expected helper script to persist progress when resolving StatusPath from RunId."
+    $status.summary | Should -Be "Foreground worker updated status from the workspace." -Because "Expected helper script to persist the summary to the workspace control status file."
+    $status.progress | Should -Be 75 -Because "Expected helper script to persist progress when resolving StatusPath from RunId."
   }
 
   It "preserves worker-authored status details when the run exits successfully" {
@@ -574,7 +504,7 @@ Describe "Claude dispatch v0.4 scripts" {
       $status = Get-Content -LiteralPath $start.statusPath -Raw | ConvertFrom-Json
     } while ($status.phase -ne "running" -and (Get-Date) -lt $deadline)
 
-    Assert-Equal $status.phase "running" "Expected the runner to enter the running phase before the worker helper updates status."
+    $status.phase | Should -Be "running" -Because "Expected the runner to enter the running phase before the worker helper updates status."
 
     Invoke-JsonScript -Path $statusHelperScript -Parameters @{
       StatusPath = $start.statusPath
@@ -591,10 +521,10 @@ Describe "Claude dispatch v0.4 scripts" {
     }
 
     $status = Get-Content -LiteralPath $start.statusPath -Raw | ConvertFrom-Json
-    Assert-Equal $check.status "completed" "Expected delayed run to complete successfully."
-    Assert-Equal $status.summary "Landing page ready for review." "Expected the worker-authored summary to be preserved."
-    Assert-Equal $status.lastCompletedStep "Created index.html and styles.css." "Expected the worker-authored lastCompletedStep to be preserved."
-    Assert-Equal $status.nextStep "Open the page in a browser and verify layout." "Expected the worker-authored nextStep to be preserved."
+    $check.status | Should -Be "completed" -Because "Expected delayed run to complete successfully."
+    $status.summary | Should -Be "Landing page ready for review." -Because "Expected the worker-authored summary to be preserved."
+    $status.lastCompletedStep | Should -Be "Created index.html and styles.css." -Because "Expected the worker-authored lastCompletedStep to be preserved."
+    $status.nextStep | Should -Be "Open the page in a browser and verify layout." -Because "Expected the worker-authored nextStep to be preserved."
 
     Invoke-JsonScript -Path $cleanupScript -Parameters @{
       RunId = $start.runId
@@ -608,7 +538,7 @@ Describe "Claude dispatch v0.4 scripts" {
 
     $powerShellPath = Get-DispatchPowerShellPath -Platform "Windows"
 
-    Assert-Equal (Split-Path -Leaf $powerShellPath) "powershell.exe" "Expected Windows launcher host to be powershell.exe."
+    (Split-Path -Leaf $powerShellPath) | Should -Be "powershell.exe" -Because "Expected Windows launcher host to be powershell.exe."
   }
 
   It "marks an interactive workspace as trusted before launching Claude" {
@@ -624,8 +554,8 @@ Describe "Claude dispatch v0.4 scripts" {
 
     $config = Get-Content -LiteralPath $claudeConfigPath -Raw -Encoding utf8 | ConvertFrom-Json
     $workspaceProject = $config.projects.'C:/Temp/dispatch-workspace'
-    Assert-True ($null -ne $workspaceProject) "Expected trust helper to create a project entry for the workspace."
-    Assert-Equal $workspaceProject.hasTrustDialogAccepted $true "Expected trust helper to mark the workspace as trusted."
+    ($null -ne $workspaceProject) | Should -BeTrue -Because "Expected trust helper to create a project entry for the workspace."
+    $workspaceProject.hasTrustDialogAccepted | Should -Be $true -Because "Expected trust helper to mark the workspace as trusted."
   }
 
   It "uses a stable source key and mirror pool root for the same source repository" {
@@ -640,8 +570,8 @@ Describe "Claude dispatch v0.4 scripts" {
     $secondKey = Get-DispatchStableWorkspaceKey -SourceWorkingDirectory ($repoPath.TrimEnd("\") + "\")
     $poolRoot = Get-MirrorPoolRoot -StateRoot $stateRoot -SourceWorkingDirectory $repoPath
 
-    Assert-Equal $firstKey $secondKey "Expected source key to be stable for equivalent source paths."
-    Assert-Match $poolRoot "\\workspaces\\_mirror\\$firstKey$" "Expected mirror pool root to include the stable source key."
+    $firstKey | Should -Be $secondKey -Because "Expected source key to be stable for equivalent source paths."
+    $poolRoot | Should -Match "\\workspaces\\_mirror\\$firstKey$" -Because "Expected mirror pool root to include the stable source key."
   }
 
   It "allocates concurrent mirrorPool runs to different slots and rejects a full pool" {
@@ -676,13 +606,13 @@ Describe "Claude dispatch v0.4 scripts" {
       ClaudePath = $fakeClaude
     }
 
-    Assert-Equal $first.workspaceMode "mirrorPool" "Expected first run to record mirrorPool mode."
-    Assert-Equal $second.workspaceMode "mirrorPool" "Expected second run to record mirrorPool mode."
-    Assert-NotEqual $first.mirrorSlot $second.mirrorSlot "Expected concurrent runs to occupy different mirror slots."
-    Assert-Match $first.workspaceDirectory "\\slots\\$($first.mirrorSlot)\\repo$" "Expected workspace directory to be the first slot repo."
-    Assert-Match $second.workspaceDirectory "\\slots\\$($second.mirrorSlot)\\repo$" "Expected workspace directory to be the second slot repo."
-    Assert-True (Test-Path -LiteralPath (Join-Path $first.mirrorSlotDirectory ".slot\lock.json")) "Expected first slot lock file to exist."
-    Assert-True (Test-Path -LiteralPath (Join-Path $second.mirrorSlotDirectory ".slot\lock.json")) "Expected second slot lock file to exist."
+    $first.workspaceMode | Should -Be "mirrorPool" -Because "Expected first run to record mirrorPool mode."
+    $second.workspaceMode | Should -Be "mirrorPool" -Because "Expected second run to record mirrorPool mode."
+    $first.mirrorSlot | Should -Not -Be $second.mirrorSlot -Because "Expected concurrent runs to occupy different mirror slots."
+    $first.workspaceDirectory | Should -Match "\\slots\\$($first.mirrorSlot)\\repo$" -Because "Expected workspace directory to be the first slot repo."
+    $second.workspaceDirectory | Should -Match "\\slots\\$($second.mirrorSlot)\\repo$" -Because "Expected workspace directory to be the second slot repo."
+    (Test-Path -LiteralPath (Join-Path $first.mirrorSlotDirectory ".slot\lock.json")) | Should -BeTrue -Because "Expected first slot lock file to exist."
+    (Test-Path -LiteralPath (Join-Path $second.mirrorSlotDirectory ".slot\lock.json")) | Should -BeTrue -Because "Expected second slot lock file to exist."
 
     $poolFullMessage = ""
     try {
@@ -700,13 +630,13 @@ Describe "Claude dispatch v0.4 scripts" {
       $poolFullMessage = $_.Exception.Message
     }
 
-    Assert-Match $poolFullMessage "Mirror pool is full" "Expected a clear pool-full error when all slots are active."
+    $poolFullMessage | Should -Match "Mirror pool is full" -Because "Expected a clear pool-full error when all slots are active."
 
     Invoke-JsonScript -Path $stopScript -Parameters @{ RunId = $first.runId; StateRoot = $stateRoot } | Out-Null
     Invoke-JsonScript -Path $stopScript -Parameters @{ RunId = $second.runId; StateRoot = $stateRoot } | Out-Null
 
-    Assert-Equal (Test-Path -LiteralPath (Join-Path $first.mirrorSlotDirectory ".slot\lock.json")) $false "Expected stop to release first slot lock."
-    Assert-Equal (Test-Path -LiteralPath (Join-Path $second.mirrorSlotDirectory ".slot\lock.json")) $false "Expected stop to release second slot lock."
+    (Test-Path -LiteralPath (Join-Path $first.mirrorSlotDirectory ".slot\lock.json")) | Should -Be $false -Because "Expected stop to release first slot lock."
+    (Test-Path -LiteralPath (Join-Path $second.mirrorSlotDirectory ".slot\lock.json")) | Should -Be $false -Because "Expected stop to release second slot lock."
   }
 
   It "prevents concurrent Acquire-MirrorSlot calls from allocating the same slot" {
@@ -741,8 +671,8 @@ Describe "Claude dispatch v0.4 scripts" {
     $uniqueSlots = @($acquiredSlots | Sort-Object -Unique)
 
     # With MirrorPoolSize=2, at most 2 unique slots should be acquired.
-    Assert-True ($acquiredSlots.Count -le 2) "Expected at most 2 slots acquired with MirrorPoolSize=2, got $($acquiredSlots.Count)."
-    Assert-Equal $acquiredSlots.Count $uniqueSlots.Count "Expected all acquired slots to be unique (no duplicate slot allocation)."
+    $acquiredSlots.Count | Should -BeLessOrEqual 2 -Because "Expected at most 2 slots acquired with MirrorPoolSize=2, got $($acquiredSlots.Count)."
+    $acquiredSlots.Count | Should -Be $uniqueSlots.Count -Because "Expected all acquired slots to be unique (no duplicate slot allocation)."
   }
 
   It "keeps mirror slot directories during normal cleanup and removes them only when requested" {
@@ -768,8 +698,8 @@ Describe "Claude dispatch v0.4 scripts" {
     Invoke-JsonScript -Path $checkScript -Parameters @{ RunId = $first.runId; StateRoot = $stateRoot; WaitSeconds = 10 } | Out-Null
     $cleanup = Invoke-JsonScript -Path $cleanupScript -Parameters @{ RunId = $first.runId; StateRoot = $stateRoot; Force = $true }
 
-    Assert-True $cleanup.removed "Expected cleanup to remove run state."
-    Assert-True (Test-Path -LiteralPath $first.mirrorSlotDirectory) "Expected default cleanup to preserve the mirror slot directory."
+    $cleanup.removed | Should -BeTrue -Because "Expected cleanup to remove run state."
+    (Test-Path -LiteralPath $first.mirrorSlotDirectory) | Should -BeTrue -Because "Expected default cleanup to preserve the mirror slot directory."
 
     $second = Invoke-JsonScript -Path $startScript -Parameters @{
       WorkingDirectory = $repoPath
@@ -785,8 +715,8 @@ Describe "Claude dispatch v0.4 scripts" {
     Invoke-JsonScript -Path $checkScript -Parameters @{ RunId = $second.runId; StateRoot = $stateRoot; WaitSeconds = 10 } | Out-Null
     $cleanupRemove = Invoke-JsonScript -Path $cleanupScript -Parameters @{ RunId = $second.runId; StateRoot = $stateRoot; Force = $true; RemoveMirrorSlot = $true }
 
-    Assert-True $cleanupRemove.removed "Expected cleanup to remove run state."
-    Assert-Equal (Test-Path -LiteralPath $second.mirrorSlotDirectory) $false "Expected -RemoveMirrorSlot to remove the mirror slot directory."
+    $cleanupRemove.removed | Should -BeTrue -Because "Expected cleanup to remove run state."
+    (Test-Path -LiteralPath $second.mirrorSlotDirectory) | Should -Be $false -Because "Expected -RemoveMirrorSlot to remove the mirror slot directory."
   }
 
   It "supports incremental mirror refresh that preserves existing slot contents" {
@@ -803,20 +733,20 @@ Describe "Claude dispatch v0.4 scripts" {
 
     # First sync: clean
     $result1 = Sync-MirrorSlotFromSource -SourceWorkingDirectory $repoPath -MirrorSlotDirectory $slotDir -MirrorRefresh "clean"
-    Assert-True (Test-Path -LiteralPath (Join-Path $repoDir "tracked.txt")) "Expected tracked.txt after clean sync."
+    (Test-Path -LiteralPath (Join-Path $repoDir "tracked.txt")) | Should -BeTrue -Because "Expected tracked.txt after clean sync."
 
     # Add a file that only exists in the slot (not in source)
     Set-Content -LiteralPath (Join-Path $repoDir "slot-only.txt") -Value "slot data" -Encoding utf8
 
     # Second sync: incremental (should NOT delete slot-only.txt)
     $result2 = Sync-MirrorSlotFromSource -SourceWorkingDirectory $repoPath -MirrorSlotDirectory $slotDir -MirrorRefresh "incremental"
-    Assert-True (Test-Path -LiteralPath (Join-Path $repoDir "tracked.txt")) "Expected tracked.txt after incremental sync."
-    Assert-True (Test-Path -LiteralPath (Join-Path $repoDir "slot-only.txt")) "Expected slot-only.txt to survive incremental sync."
+    (Test-Path -LiteralPath (Join-Path $repoDir "tracked.txt")) | Should -BeTrue -Because "Expected tracked.txt after incremental sync."
+    (Test-Path -LiteralPath (Join-Path $repoDir "slot-only.txt")) | Should -BeTrue -Because "Expected slot-only.txt to survive incremental sync."
 
     # Third sync: clean (should delete slot-only.txt)
     $result3 = Sync-MirrorSlotFromSource -SourceWorkingDirectory $repoPath -MirrorSlotDirectory $slotDir -MirrorRefresh "clean"
-    Assert-True (Test-Path -LiteralPath (Join-Path $repoDir "tracked.txt")) "Expected tracked.txt after second clean sync."
-    Assert-Equal (Test-Path -LiteralPath (Join-Path $repoDir "slot-only.txt")) $false "Expected slot-only.txt to be removed by clean sync."
+    (Test-Path -LiteralPath (Join-Path $repoDir "tracked.txt")) | Should -BeTrue -Because "Expected tracked.txt after second clean sync."
+    (Test-Path -LiteralPath (Join-Path $repoDir "slot-only.txt")) | Should -Be $false -Because "Expected slot-only.txt to be removed by clean sync."
   }
 
   It "reports mirrorPool diff from the slot repo instead of the source repository" {
@@ -842,9 +772,9 @@ Describe "Claude dispatch v0.4 scripts" {
 
     $check = Invoke-JsonScript -Path $checkScript -Parameters @{ RunId = $start.runId; StateRoot = $stateRoot; WaitSeconds = 10 }
 
-    Assert-Equal $check.workspaceMode "mirrorPool" "Expected check output to include mirrorPool mode."
-    Assert-True ($check.changedFiles.path -contains "worker-output.txt") "Expected slot repo diff to include worker-output.txt."
-    Assert-Equal (Test-Path -LiteralPath (Join-Path $repoPath "worker-output.txt")) $false "Expected source repository to remain unchanged."
+    $check.workspaceMode | Should -Be "mirrorPool" -Because "Expected check output to include mirrorPool mode."
+    $check.changedFiles.path | Should -Contain "worker-output.txt" -Because "Expected slot repo diff to include worker-output.txt."
+    (Test-Path -LiteralPath (Join-Path $repoPath "worker-output.txt")) | Should -Be $false -Because "Expected source repository to remain unchanged."
   }
 
   It "blocks hook writes to the source repository and other mirror slots" {
@@ -891,10 +821,10 @@ Describe "Claude dispatch v0.4 scripts" {
       -MirrorPoolRoot (Join-Path $tempRoot "pool") `
       -MirrorSlotDirectory (Join-Path $tempRoot "pool\slots\slot-1") | Out-String
 
-    Assert-Match $sourceOutput '"permissionDecision"\s*:\s*"deny"' "Expected hook to deny writes to the source repository."
-    Assert-Match $sourceOutput "source repository" "Expected source repository denial reason."
-    Assert-Match $otherSlotOutput '"permissionDecision"\s*:\s*"deny"' "Expected hook to deny writes to another mirror slot."
-    Assert-Match $otherSlotOutput "another mirror slot" "Expected other slot denial reason."
+    $sourceOutput | Should -Match '"permissionDecision"\s*:\s*"deny"' -Because "Expected hook to deny writes to the source repository."
+    $sourceOutput | Should -Match "source repository" -Because "Expected source repository denial reason."
+    $otherSlotOutput | Should -Match '"permissionDecision"\s*:\s*"deny"' -Because "Expected hook to deny writes to another mirror slot."
+    $otherSlotOutput | Should -Match "another mirror slot" -Because "Expected other slot denial reason."
   }
 
   It "prints visible progress lines for visible hook events without breaking JSON output" {
@@ -930,8 +860,8 @@ Describe "Claude dispatch v0.4 scripts" {
       -OwnedPathsJson "[]" `
       -DisplayMode "visible" 6>&1 | Out-String
 
-    Assert-Match $output '\[Claude Dispatch\] Claude accepted the task and is starting work\.' "Expected visible hook output to show that Claude started working."
-    Assert-Match $output '"hookEventName"\s*:\s*"UserPromptSubmit"' "Expected hook JSON output to remain intact."
+    $output | Should -Match '\[Claude Dispatch\] Claude accepted the task and is starting work\.' -Because "Expected visible hook output to show that Claude started working."
+    $output | Should -Match '"hookEventName"\s*:\s*"UserPromptSubmit"' -Because "Expected hook JSON output to remain intact."
   }
 
   It "infers completion from final-report.md when the runner exits without a terminal status" {
@@ -970,8 +900,8 @@ Describe "Claude dispatch v0.4 scripts" {
       WaitSeconds = 0
     }
 
-    Assert-Equal $check.status "completed" "Expected check script to infer completion from final-report.md."
-    Assert-Equal $check.phase "completed" "Expected inferred completion to update the status file phase."
+    $check.status | Should -Be "completed" -Because "Expected check script to infer completion from final-report.md."
+    $check.phase | Should -Be "completed" -Because "Expected inferred completion to update the status file phase."
   }
 
   It "finishes an interactive run when Claude writes terminal control files but stays open" {
@@ -1003,10 +933,10 @@ Describe "Claude dispatch v0.4 scripts" {
         WaitSeconds = 15
       }
 
-      Assert-Equal $check.status "completed" "Expected runner to mark the interactive run completed from control files."
-      Assert-Equal $check.phase "completed" "Expected status phase to remain completed."
-      Assert-Equal $check.processAlive $false "Expected runner process to exit after control-file completion."
-      Assert-Equal (Test-Path -LiteralPath (Join-Path $start.mirrorSlotDirectory ".slot\lock.json")) $false "Expected completed run to release its mirror slot."
+      $check.status | Should -Be "completed" -Because "Expected runner to mark the interactive run completed from control files."
+      $check.phase | Should -Be "completed" -Because "Expected status phase to remain completed."
+      $check.processAlive | Should -Be $false -Because "Expected runner process to exit after control-file completion."
+      (Test-Path -LiteralPath (Join-Path $start.mirrorSlotDirectory ".slot\lock.json")) | Should -Be $false -Because "Expected completed run to release its mirror slot."
     } finally {
       Remove-Item Env:\FAKE_CLAUDE_BEHAVIOR -ErrorAction SilentlyContinue
       Remove-Item Env:\FAKE_CLAUDE_SLEEP_SECONDS -ErrorAction SilentlyContinue
@@ -1071,7 +1001,97 @@ Describe "Claude dispatch v0.4 scripts" {
     }
     $watch.Stop()
 
-    Assert-True ($watch.Elapsed.TotalSeconds -ge 1.5) "Expected check to wait for the visible launcher handoff deadline before declaring unknown."
-    Assert-Equal $check.status "unknown" "Expected check to mark the run unknown after the wait deadline expires."
+    $watch.Elapsed.TotalSeconds | Should -BeGreaterOrEqual 1.5 -Because "Expected check to wait for the visible launcher handoff deadline before declaring unknown."
+    $check.status | Should -Be "unknown" -Because "Expected check to mark the run unknown after the wait deadline expires."
+  }
+
+  It "denies dispatch with -DisplayMode hidden through PreToolUse hook" {
+    $tempRoot = New-TestTempDirectory
+    $statusPath = Join-Path $tempRoot "status.json"
+    $eventsPath = Join-Path $tempRoot "events.ndjson"
+    $taskPath = Join-Path $tempRoot "TASK.md"
+    $finalReportPath = Join-Path $tempRoot "final-report.md"
+    $hookScript = Join-Path $scriptRoot "invoke-claude-dispatch-hook.ps1"
+
+    Set-Content -LiteralPath $taskPath -Value "task" -Encoding utf8
+    Set-Content -LiteralPath $statusPath -Value '{"summary":"Q","lastCompletedStep":"n","nextStep":"s","blockedOn":[],"progress":0,"heartbeatAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","finalReportWritten":false}' -Encoding utf8
+    Set-Content -LiteralPath $finalReportPath -Value "" -Encoding utf8
+
+    $jsonInput = '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"start-claude-dispatch.ps1 -DisplayMode hidden -Prompt test"}}'
+    $output = $jsonInput | & $hookScript -EventName "PreToolUse" -StateDirectory $tempRoot -StatusPath $statusPath -EventsPath $eventsPath -TaskPath $taskPath -FinalReportPath $finalReportPath -WorkspaceDirectory "C:\Temp" -DisplayMode "hidden" | Out-String
+
+    $output | Should -Match '"permissionDecision"\s*:\s*"deny"' -Because "Expected hook to deny hidden dispatch."
+    $output | Should -Match "Visible terminal principle" -Because "Expected denial reason to cite visible terminal principle."
+  }
+
+  It "alignment hook respects confirmed status and allows dispatch" {
+    $tempRoot = New-TestTempDirectory
+    $stateRoot = Join-Path $tempRoot "state"
+    $stateDir = Join-Path $stateRoot "state"
+    New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
+    $alignmentPath = Join-Path $stateDir "alignment.json"
+    
+    [ordered]@{
+      status = "confirmed"
+      goal = "Add feature X"
+      successCriteria = "Tests pass"
+      constraints = "No breaking changes"
+      nonGoals = "Refactoring"
+      confirmedAt = (Get-Date).ToString("o")
+    } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $alignmentPath -Encoding utf8
+    
+    $alignment = Get-Content -LiteralPath $alignmentPath -Raw | ConvertFrom-Json
+    $alignment.status | Should -Be "confirmed" -Because "alignment.json should be confirmed"
+    $alignment.goal | Should -Not -BeNullOrEmpty -Because "goal should be filled"
+    $alignment.successCriteria | Should -Not -BeNullOrEmpty -Because "successCriteria should be filled"
+  }
+
+  It "wait-for-answer exits with timeout when no answer arrives" {
+    $tempRoot = New-TestTempDirectory
+    $questionPath = Join-Path $tempRoot "q-001.json"
+    $answerPath = Join-Path $tempRoot "a-001.json"
+    
+    [ordered]@{
+      questionId = "q-001"
+      askedAt = (Get-Date).ToString("o")
+      question = "REST or GraphQL?"
+      options = @("REST", "GraphQL")
+    } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $questionPath -Encoding utf8
+    
+    $waitScript = Join-Path $scriptRoot "wait-for-answer.ps1"
+    $result = & $waitScript -QuestionPath $questionPath -AnswerPath $answerPath -TimeoutSeconds 2 -PollIntervalSeconds 1 2>&1 | Out-String
+    
+    $result | Should -Match "timedOut" -Because "should timeout when no answer file is created"
+  }
+
+  It "quality gate blocks stop when configured commands fail" {
+    $tempRoot = New-TestTempDirectory
+    $statusPath = Join-Path $tempRoot "status.json"
+    $eventsPath = Join-Path $tempRoot "events.ndjson"
+    $taskPath = Join-Path $tempRoot "TASK.md"
+    $finalReportPath = Join-Path $tempRoot "final-report.md"
+    $settingsPath = Join-Path $tempRoot "claude-settings.json"
+    $hookScript = Join-Path $scriptRoot "invoke-claude-dispatch-hook.ps1"
+    $controlDir = Join-Path $tempRoot "control"
+    New-Item -ItemType Directory -Path $controlDir -Force | Out-Null
+
+    Set-Content -LiteralPath $taskPath -Value "task" -Encoding utf8
+    Set-Content -LiteralPath $statusPath -Value '{"summary":"Done","lastCompletedStep":"finished","nextStep":"none","blockedOn":[],"progress":100,"heartbeatAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","finalReportWritten":true}' -Encoding utf8
+    Set-Content -LiteralPath $finalReportPath -Value "Final report content here." -Encoding utf8
+    
+    [ordered]@{
+      permissions = [ordered]@{ defaultMode = "acceptEdits"; deny = @() }
+      hooks = @{}
+      qualityGate = [ordered]@{
+        commands = @("exit 1")
+        timeoutSeconds = 10
+      }
+    } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $settingsPath -Encoding utf8
+
+    $jsonInput = '{"hook_event_name":"Stop"}'
+    $output = $jsonInput | & $hookScript -EventName "Stop" -StateDirectory $tempRoot -StatusPath $statusPath -EventsPath $eventsPath -TaskPath $taskPath -FinalReportPath $finalReportPath -WorkspaceDirectory $tempRoot -CommonPath $commonScript | Out-String
+
+    $output | Should -Match '"decision"\s*:\s*"block"' -Because "quality gate failure should block stop"
+    $output | Should -Match "Quality gate" -Because "block reason should mention quality gate"
   }
 }

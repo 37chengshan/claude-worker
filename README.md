@@ -4,7 +4,7 @@
 
 `claude-worker` is a Codex plugin that treats normal Claude Code CLI as the implementation worker while Codex stays in charge of planning, orchestration, diff review, validation, and final acceptance.
 
-v0.4 turns the foreground dispatch experiment into a stable mirror-slot workflow:
+v2.0 turns the foreground dispatch experiment into a structured workflow with alignment gates, quality gates, and one-click merge:
 
 - visible terminal windows by default for background work
 - true foreground interactive Claude Code by default (`claude "initial prompt"`, not `claude -p`)
@@ -32,7 +32,7 @@ The operating model is simple:
 4. Codex reviews the real diff and runs final validation.
 5. Codex either accepts the result or dispatches a correction.
 
-## v0.4 Highlights
+## v2.0 Highlights
 
 ### 1. Visible terminal by default
 
@@ -96,14 +96,26 @@ plugins/
       claude-worker/
         SKILL.md
         agents/openai.yaml
+        codex-hooks/
+          hooks.json
+          README.md
         scripts/
-          dispatch-claude.ps1
-          start-claude-dispatch.ps1
+          align-intent.ps1
+          apply-dispatch.ps1
           check-claude-dispatch.ps1
-          list-claude-dispatch.ps1
-          stop-claude-dispatch.ps1
           cleanup-claude-dispatch.ps1
           claude-dispatch-common.ps1
+          dispatch-claude.ps1
+          list-claude-dispatch.ps1
+          start-claude-dispatch.ps1
+          start-claude-dispatch-runner.ps1
+          stop-claude-dispatch.ps1
+          subscribe-dispatch-events.ps1
+          update-claude-dispatch-status.ps1
+          wait-for-answer.ps1
+          watch-claude-dispatch.ps1
+          write-claude-dispatch-handoff.ps1
+          invoke-claude-dispatch-hook.ps1
 tests/
   claude-dispatch.tests.ps1
   fixtures/fake-claude.ps1
@@ -179,7 +191,7 @@ Key parameters:
 - `MirrorPoolSize` default `4`
 - `MirrorSlot` optional, for example `slot-1`
 - `MirrorRefresh = clean|incremental`
-- `MergeMode = reviewOnly|applyOwnedPaths` (`reviewOnly` is the v0.4 default)
+- `MergeMode = reviewOnly|applyOwnedPaths` (`reviewOnly` is the default)
 - `RunLabel`
 - `BatchId`
 - `BatchGoal`
@@ -343,3 +355,68 @@ The goal is not “full autonomous swarm.” The goal is controlled delegation w
 ## License
 
 MIT
+
+## v2.0 Workflow
+
+The v2.0 workflow adds structured stages from intent to merge:
+
+### 1. Alignment
+
+```powershell
+& "scripts/align-intent.ps1" -WorkingDirectory "<repo>"
+```
+
+Creates `.dispatch/state/alignment.json` with goal, success criteria, constraints, and non-goals. Must be confirmed before dispatching.
+
+### 2. Dispatch
+
+Choose mode based on task complexity:
+
+- **Sync** (`dispatch-claude.ps1`): ≤ 5 files, clear scope
+- **Background** (`start-claude-dispatch.ps1`): 6-20 files or multi-module
+- **Parallel**: separable OwnedPaths with no file overlap
+- **Serial**: sequential dependencies via `DependencyRunIds`
+
+### 3. Monitor
+
+```powershell
+# Real-time event stream (replaces polling)
+& "scripts/subscribe-dispatch-events.ps1" -EventsPath "<stateDir>/events.ndjson"
+
+# Check status
+& "scripts/check-claude-dispatch.ps1" -RunId "<run-id>" -WaitSeconds 600
+```
+
+### 4. Review
+
+Use the post-dispatch review checklist from SKILL.md:
+
+- Changes within OwnedPaths
+- Validation passing
+- No scope creep
+- Tests covering core paths
+
+### 5. Apply
+
+```powershell
+# Preview changes
+& "scripts/apply-dispatch.ps1" -RunId "<run-id>" -DryRun
+
+# Apply and commit
+& "scripts/apply-dispatch.ps1" -RunId "<run-id>"
+```
+
+### Quality Gate
+
+Configure validation commands that run before the Stop hook allows exit:
+
+```powershell
+& "scripts/start-claude-dispatch.ps1" `
+  -WorkingDirectory "<repo>" `
+  -Prompt "<task>" `
+  -QualityGateCommands @("npm test", "pnpm tsc --noEmit")
+```
+
+### Dispatch History
+
+Every completed dispatch appends to `.dispatch/dispatch-log.ndjson` during cleanup.
